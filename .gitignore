@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+._*
+# Iconos de carpeta de macOS/Dropbox (fichero «Icon» + retorno de carro)
+Icon?
+
+# Dropbox
+.dropbox
+.dropbox.attr
+.dropbox.cache
+# Los «conflicted copy» NO se ignoran a propósito: tienen que verse para arreglarlos.
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Editores
+.vscode/
+.idea/

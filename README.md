@@ -7,7 +7,7 @@ The HARMONI's 1D Radiometric Simulator.
 This is a work in progress. If you want to retrieve the latest changes in the project, clone directly from the development branch (`develop`) as:
 
 ```
-$ git clone --branch develop git@github.com:HARMONI-CAB/radiosim.git
+$ git clone --branch develop https://github.com/CAB-Instrumentation/radiosim.git
 $ cd radiosim
 ```
 
