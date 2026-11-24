@@ -112,6 +112,7 @@ class SimUiWindow(QtWidgets.QMainWindow):
         self.overrideLabelCheck.toggled.connect(self.on_state_widget_changed)
         
         self.instModeCombo.activated.connect(self.on_inst_mode_widget_changed)
+        self.calSourceCombo.activated.connect(self.on_inst_mode_widget_changed)
         self.focalLengthSpin.valueChanged.connect(self.on_inst_mode_widget_changed)
         self.efficiencySpin.valueChanged.connect(self.on_inst_mode_widget_changed)
         self.apertureSpin.valueChanged.connect(self.on_inst_mode_widget_changed)
@@ -146,6 +147,7 @@ class SimUiWindow(QtWidgets.QMainWindow):
         self.action_Save_as.triggered.connect(self.on_save_as)
         self.action_Quit.triggered.connect(self.on_quit)
         self.action_LoadCube.triggered.connect(self.on_load_cube)
+        self.action_loadFCURadiance.triggered.connect(self.on_load_fcu)
         self.actionExport_data.triggered.connect(self.on_export_data)
         self.cubeChooserDialog.accepted.connect(self.on_cube_accepted)
 
@@ -284,6 +286,12 @@ class SimUiWindow(QtWidgets.QMainWindow):
                 item.widget().deleteLater()
             self.skyLayout.removeItem(item)
 
+        for i in reversed(range(self.fcuLayout.count())): 
+            item = self.fcuLayout.itemAt(i)
+            if item.widget() is not None:
+                item.widget().deleteLater()
+            self.fcuLayout.removeItem(item)
+
         if self.params is None:
             return
         
@@ -294,13 +302,29 @@ class SimUiWindow(QtWidgets.QMainWindow):
             params = self.params.get_lamp_params(lamp)
             widget = LampControlWidget(lamp, params, self.params)
 
-            if params[0].test_role('cal'):
+            if params[0].test_role('HARMONI'):
                 self.lampLayout.insertWidget(-1, widget)
-            else:
+            elif params[0].test_role('MICADO'):
+                self.fcuLayout.insertWidget(-1, widget)
+            elif params[0].test_role('telescope'):
                 self.skyLayout.insertWidget(-1, widget)
+            
             widget.changed.connect(self.on_lamp_changed)
             self.lamp_widgets[lamp] = widget
-        
+
+        # Fix FCU layout        
+        if self.fcuLayout.count() == 0:
+            noSources = QLabel()
+            noSources.setText('No light sources defined. Open at least one radiance curve to start a simulation.')
+            noSources.setStyleSheet('font-style: italic;')
+            noSources.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+            noSources.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+            noSources.setWordWrap(True)
+            self.fcuLayout.insertWidget(-1, noSources)
+        else:
+            self.fcuLayout.addItem (QSpacerItem(1, 1, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+
+        # Fix sky source layout
         if self.skyLayout.count() == 0:
             noSources = QLabel()
             noSources.setText('No light sources defined. Open at least one datacube to run a simulation.')
@@ -381,8 +405,9 @@ class SimUiWindow(QtWidgets.QMainWindow):
         if type is None:
             self.spectYAxisCombo.setEnabled(False)
             return
-        elif type == 'is_in' and not self.is_cal_selected():
-            self.spectYAxisCombo.setEnabled(False)
+        elif type == 'is_in':
+            enabled = self.is_cal_selected() and self.get_cal_source() == 'HARMONI'
+            self.spectYAxisCombo.setEnabled(enabled)
             return
 
         spectrums = self.params.get_spectrums_for_type(type)
@@ -425,6 +450,13 @@ class SimUiWindow(QtWidgets.QMainWindow):
         
         self.isApertureDiamSpin.setMaximum(1e3 * self.isRadiusSpin.value())
 
+        harmoniMode = self.calSourceCombo.currentIndex() == 0
+
+        self.isRadiusSpin.setEnabled(harmoniMode)
+        self.isApertureDiamSpin.setEnabled(harmoniMode)
+        self.isCoatingCombo.setEnabled(harmoniMode)
+        self.customEqCombo.setEnabled(harmoniMode)
+
     def refresh_max_area(self):
             maxArea = np.pi * .25 * self.apertureSpin.value() ** 2
             self.collectingAreaSpin.setMaximum(maxArea)
@@ -439,13 +471,20 @@ class SimUiWindow(QtWidgets.QMainWindow):
         
     def refresh_instrument_mode_ui_state(self):
         self.calModeStack.setCurrentIndex(self.instModeCombo.currentIndex())
-        self.sourceStack.setCurrentIndex(self.instModeCombo.currentIndex())
-        
+
         if self.calModeStack.currentIndex() == 0:
+            if self.get_cal_source() == 'MICADO':
+                self.sourceStack.setCurrentIndex(2)
+            elif self.get_cal_source() == 'HARMONI':
+                self.sourceStack.setCurrentIndex(0)
+            else:
+                raise Exception(fr'Unsupported calibration source type')
+            
             self.refresh_cm_ui_state()
         else:
+            self.sourceStack.setCurrentIndex(1)
             self.refresh_telescope_ui_state()
-    
+            
     def refresh_ui_state(self):
         self.update_title()
         self.refresh_instrument_mode_ui_state()
@@ -454,7 +493,7 @@ class SimUiWindow(QtWidgets.QMainWindow):
 
     def set_grating(self, grating_name):
         if grating_name is None:
-            grating_name = "VIS"
+            grating_name = "LR1"
 
         obj = self.params.get_grating(grating_name)
         if obj is None:
@@ -612,7 +651,10 @@ class SimUiWindow(QtWidgets.QMainWindow):
         config.is_coating  = self.isCoatingCombo.currentData()
 
     def get_current_role(self):
-        return 'cal' if self.instModeCombo.currentIndex() == 0 else 'telescope'
+        if self.is_cal_selected():
+            return self.get_cal_source()
+        else:
+            return 'telescope'
 
     def any_lamp_is_on(self):
         role = self.get_current_role()
@@ -677,12 +719,19 @@ class SimUiWindow(QtWidgets.QMainWindow):
         else:
             self.isCoatingCombo.setCurrentIndex(index)
 
-    def set_cal_mode(self, enabled):
+    def set_cal_mode(self, enabled, source):
         ndx = 0 if enabled else 1
         self.calModeStack.setCurrentIndex(ndx)
         self.instModeCombo.setCurrentIndex(ndx)
         self.sourceStack.setCurrentIndex(ndx)
 
+        if source == "HARMONI":
+            self.calSourceCombo.setCurrentIndex(0)
+        elif source == "MICADO":
+            self.calSourceCombo.setCurrentIndex(1)
+        else:
+            self.calSourceCombo.setCurrentIndex(0)
+        
     def refresh_airmass(self):
         angle = self.zenithSpin.value()
         toRad = angle / 180. * np.pi
@@ -701,11 +750,12 @@ class SimUiWindow(QtWidgets.QMainWindow):
         cal     = self.instModeCombo.currentIndex() == 0
         airmass = 1.1
 
-        resp_config['grating']   = grating
-        resp_config['ao']        = aomode
-        resp_config['cal']       = cal
-        resp_config['airmass']   = airmass
-        resp_config['custom_eq'] = self.customEqCombo.currentData()
+        resp_config['grating']    = grating
+        resp_config['ao']         = aomode
+        resp_config['cal']        = cal
+        resp_config['cal_source'] = self.get_cal_source()
+        resp_config['airmass']    = airmass
+        resp_config['custom_eq']  = self.customEqCombo.currentData()
 
         response = self.params.make_response(resp_config)
 
@@ -732,7 +782,7 @@ class SimUiWindow(QtWidgets.QMainWindow):
 
             self.set_cm_config(config)
             self.set_telescope_config(config.telescope)
-            self.set_cal_mode(config.cal_select)
+            self.set_cal_mode(config.cal_select, config.cal_source)
 
             self.set_grating(config.grating)
             self.set_ao_mode(config.aomode)
@@ -764,6 +814,8 @@ class SimUiWindow(QtWidgets.QMainWindow):
 
             self.bypass_stage = config.bypass_stage
 
+            self.refresh_instrument_mode_ui_state()
+
             self.changes = False
             self.update_title()
             self.changed.emit()
@@ -786,6 +838,15 @@ class SimUiWindow(QtWidgets.QMainWindow):
     def is_cal_selected(self):
         return self.instModeCombo.currentIndex() == 0
     
+    def get_cal_source(self):
+        sources = ["HARMONI", "MICADO"]
+
+        index = self.calSourceCombo.currentIndex()
+        if index < 0:
+            index = 0
+        
+        return sources[index]
+    
     def get_config(self):
         config = SimulationConfig()
         
@@ -798,6 +859,7 @@ class SimUiWindow(QtWidgets.QMainWindow):
             config.set_temp_config(temp, self.temp_widgets[temp].get_config())
         
         config.cal_select      = self.is_cal_selected()
+        config.cal_source      = self.get_cal_source()
 
         config.is_coating      = self.isCoatingCombo.currentData()
         config.is_aperture     = self.isApertureDiamSpin.value() * 1e-3
@@ -985,7 +1047,27 @@ class SimUiWindow(QtWidgets.QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, 'Cannot load config file', 'Failed to load config file: ' + str(e) + fr'<p /><pre>{traceback.format_exc()}</pre>')
             return False
-            
+
+    def do_load_fcu(self):
+        name, filter = QFileDialog.getOpenFileName(
+            self,
+            'Load FCU spectrum',
+            filter = 'FCU Radiance spectrum (*.csv);;All files (*)')
+        
+        if len(name) == 0:
+            return False
+
+        try:
+            self.params.load_lamp(
+                name = os.path.basename(name),
+                path = name,
+                desc = os.path.basename(name),
+                role = 'MICADO')
+            self.refresh_lamps()
+        except Exception as e:
+            QMessageBox.critical(self, 'Cannot load radiance curve', 'Failed to load radiance spectrum data: ' + str(e) + fr'<p /><pre>{traceback.format_exc()}</pre>')
+            return False
+
     def closeEvent(self, event):
         # do stuff
         if self.about_to_close():
@@ -1005,6 +1087,9 @@ class SimUiWindow(QtWidgets.QMainWindow):
 
         self.do_open()
 
+    def on_load_fcu(self):
+        self.do_load_fcu()
+    
     def on_open_stage_dialog(self):
         self.do_configure_stages()
 

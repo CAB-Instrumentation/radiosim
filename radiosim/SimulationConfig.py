@@ -183,6 +183,7 @@ class SimulationConfig(SerializableConfig):
         self.telescope       = TelescopeConfig()
         self.detector        = DetectorConfig()
         self.cal_select      = True
+        self.cal_source      = "MICADO"
         self.is_radius       = 1e-1
         self.is_aperture     = .5e-1
         self.is_coating      = 'SPECTRALON'
@@ -191,7 +192,7 @@ class SimulationConfig(SerializableConfig):
         self.bypass_stage    = []
         self.binning         = 1
         self.lambda_sampling = 2.2
-        self.grating         = 'VIS'
+        self.grating         = 'LR1'
         self.aomode          = 'NOAO'
         self.scale           = (4, 4)
         self.t_exp           = 10
@@ -220,8 +221,15 @@ class SimulationConfig(SerializableConfig):
     def set_temp_config(self, name, temp):
         self.temps[name] = temp
     
+    def role(self):
+        if self.cal_select:
+            return self.cal_source
+        else:
+            return 'telescope'
+        
     def save(self):
         self.save_param("cal_select")
+        self.save_param("cal_source")
         self.save_param("lambda_sampling")
         
         self.save_param("is_coating")

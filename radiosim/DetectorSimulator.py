@@ -40,6 +40,7 @@ from . import StageResponse
 from .DetectorPixel import DetectorPixel
 
 from scipy.special import erf
+from scipy.stats   import poisson
 
 class TExpSimulator:
     def __init__(self, det, wl, count_limit, N = 1000):
@@ -47,7 +48,8 @@ class TExpSimulator:
             wl = np.array([wl])
         
         self.det         = det
-        self.Ie          = self.det.electronRatePerPixel(wl = wl)
+        # Single-wavelength simulation: keep the electron rate as a scalar
+        self.Ie          = np.asarray(self.det.electronRatePerPixel(wl = wl)).item()
         self.texp_approx = self.det.getMaxTexp(wl = wl, count_limit = count_limit)[0]
         self.texp_min    = np.max([0., self.texp_approx - self.texp_approx ** .5])
         self.texp_max    = self.texp_approx + self.texp_approx ** .5
@@ -66,7 +68,7 @@ class TExpSimulator:
             mu    = rate
             p = np.exp(-.5 * ((x - mu) / sqrtt) ** 2) / quot
         else:
-            p = np.exp(-rate) * rate ** x / np.math.gamma(x + 1)
+            p = poisson.pmf(x, rate)
 
         return p
 
@@ -181,7 +183,7 @@ class DetectorSimulator:
         return self.get_E(wl = wl, nu = nu, atten = atten) / self.E_p(wl, nu)
     
     def fluxPerSpaxel(self, wl = None, nu = None, atten = True):
-        """
+        r"""
         Returns attenuated flux per spaxel (T_h * T_d * \Phi_{sp})
         This is actually a spectral density (W/m)
         """
@@ -220,7 +222,7 @@ class DetectorSimulator:
         return res / (self.pxPerDeltaL)
 
     def integratedFluxPerPixel(self, wl = None, nu = None, atten = True):
-        """
+        r"""
         Returns incident spectral flux per pixel (\Phi_{px})
         Please note this has units of W!! This is NOT a spectral density (W/m)
         """

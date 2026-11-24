@@ -125,7 +125,7 @@ class SimUI(QObject):
                         title  = 'CCD saturation time probability distribution',
                         xlabel = 'Time to saturation [s]',
                         ylabel = fr'Probability density $p(t|{{c = {self.max_c}}})$',
-                        label = '$\lambda = {0:1.3f}{{\mu}}m$, $c_{{max}}$ = {1} ADU, scale ${2}x{3}$'.format(
+                        label = r'$\lambda = {0:1.3f}{{\mu}}m$, $c_{{max}}$ = {1} ADU, scale ${2}x{3}$'.format(
                             self.target_wl * 1e6,
                             self.max_c,
                             self.config.scale[0],
@@ -139,6 +139,7 @@ class SimUI(QObject):
             dialog.setWindowTitle("Simulation error")
             dialog.exec()   # Stores the return value for the button pressed
 
+
     def get_graphviz(self):
         graph = '''
         digraph {
@@ -147,7 +148,7 @@ class SimUI(QObject):
             edge [fontname="Helvetica", color="#505050", constaint=false];
         '''
 
-        role       = 'cal' if self.config.cal_select else 'telescope'
+        role       = self.config.role()
         response   = self.make_current_response()
         lamp_nodes = []
         count = 0
@@ -185,8 +186,12 @@ class SimUI(QObject):
         color     = coating._text
 
         if self.config.cal_select:
-            html   = f'Integrating Sphere\n{coating._name}'
-            graph += f'input [shape=circle, fillcolor="white:{fillcolor}", fontcolor="{color}", gradientangle=0, style=radial, label = "{html}"];\n'
+            if self.config.cal_source == "MICADO":
+                html   = f'FCU'
+                graph += f'input [shape=box3d, fillcolor="white:{fillcolor}", height=1, width=1, fontcolor="{color}", gradientangle=0, style=radial, label = "{html}"];\n'
+            else:
+                html   = f'Integrating Sphere\n{coating._name}'
+                graph += f'input [shape=circle, fillcolor="white:{fillcolor}", fontcolor="{color}", gradientangle=0, style=radial, label = "{html}"];\n'
         else:
             html   = f'<b>ELT</b><br />{self.config.telescope.focal_length} / {self.config.telescope.aperture}'
             graph += f'input [shape=cylinder, fillcolor="white", rotate=90, height=2, width=2, label = <{html}>];\n'
@@ -228,22 +233,24 @@ class SimUI(QObject):
         resp_config = {}
         airmass = 1.1
 
-        if self.config.cal_select:
+        if not self.config.cal_select:
             angle   = self.config.telescope.zenith_distance
             toRad   = angle / 180. * np.pi
             airmass = 1. / np.cos(toRad)
         
-        resp_config['grating']   = self.config.grating
-        resp_config['ao']        = self.config.aomode
-        resp_config['cal']       = self.config.cal_select
-        resp_config['airmass']   = airmass
-        resp_config['custom_eq'] = self.config.custom_eq
+        resp_config['grating']    = self.config.grating
+        resp_config['ao']         = self.config.aomode
+        resp_config['cal']        = self.config.cal_select
+        resp_config['cal_source'] = self.config.cal_source
+        resp_config['source']     = self.config.cal_source
+        resp_config['airmass']    = airmass
+        resp_config['custom_eq']  = self.config.custom_eq
         # Incrementing the scale means that the same pixel covers more sky.
         # This reduces the effective focal length in the involved parts.
-        resp_config['fD_tel']    = self.get_sky_fnum()
-        resp_config['fD_cal']    = HARMONI_INST_FNUM
-        resp_config['fD_ins']    = HARMONI_INST_FNUM
-        resp_config['fD_fix']    = HARMONI_INST_FNUM
+        resp_config['fD_tel']     = self.get_sky_fnum()
+        resp_config['fD_cal']     = HARMONI_INST_FNUM
+        resp_config['fD_ins']     = HARMONI_INST_FNUM
+        resp_config['fD_fix']     = HARMONI_INST_FNUM
 
         response = self.params.make_response(resp_config)
         if self.config.bypass_stage is not None:
@@ -261,7 +268,7 @@ class SimUI(QObject):
         
         return coating
 
-    def make_cal_mode_spectrum(self):
+    def make_harmoni_mode_spectrum(self):
         #
         # The generation of a CAL mode spectrum works assuming that there is
         # certain unstructured power input that is transformed into a Lambertian
@@ -284,7 +291,7 @@ class SimUI(QObject):
             if config.is_on:
                 lamp_spectrum = self.params.get_lamp(lamp)
 
-                if lamp_spectrum.test_role('cal'):
+                if lamp_spectrum.test_role('HARMONI'):
                     if len(self.lamp_text) > 0:
                         self.lamp_text += ' + '
                     self.lamp_text += lamp
@@ -309,12 +316,54 @@ class SimUI(QObject):
                     fiber_spectrum.push_filter(response)
                     fiber_spectrum.set_multiplicity(config.fiber_length)
                     sphere.push_spectrum(fiber_spectrum)
+                
 
 
         spectrum = radiosim.AttenuatedSpectrum(sphere)
         spectrum.set_fnum(self.get_cal_fnum())
         return spectrum
 
+    def make_micado_mode_spectrum(self):
+        #
+        # MICADO mode spectra are descriptions of the FCU radiance. We can
+        # construct them pretty much like a sky spectrum, but simpler
+        #
+
+        fcu = radiosim.OverlappedSpectrum()
+
+        # Spectrum coming from all lamps
+        self.lamp_text = ''
+        for lamp in self.config.lamps.keys():
+            config = self.config.lamps[lamp]
+            if config.is_on:
+                lamp_spectrum = self.params.get_lamp(lamp)
+
+                if lamp_spectrum.test_role('MICADO'):
+                    if len(self.lamp_text) > 0:
+                        self.lamp_text += ' + '
+                    self.lamp_text += lamp
+                    
+                    if issubclass(type(lamp_spectrum), radiosim.PowerSpectrum):
+                        raise RuntimeError("Power spectrums are not allowed as FCU sources")
+                    
+                    fcu.push_spectrum(lamp_spectrum)
+
+        # We are going to rely on the cal mode f/# to convert FCU radiances into
+        # pixel irradiances
+
+        spectrum = radiosim.AttenuatedSpectrum(fcu)
+        spectrum.set_fnum(self.get_cal_fnum())
+
+        return spectrum
+
+    def make_cal_mode_spectrum(self):
+        if self.config.cal_source == 'HARMONI':
+            return self.make_harmoni_mode_spectrum()
+        elif self.config.cal_source == 'MICADO':
+            return self.make_micado_mode_spectrum()
+        else:
+            raise Exception(fr'Instrument is in an unknown cal source state ({self.config.cal_source})')
+        
     def make_obs_mode_spectrum(self):
         #
         # The generation of an observation mode spectrum assumes that there is

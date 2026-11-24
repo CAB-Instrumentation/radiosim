@@ -128,13 +128,9 @@ class Parameters():
         self.load_part("M1-M5", 'TTel', area_scaling=False, n_mirrors=1, t_mirror="ELT_mirror_reflectivity.txt")
         self.load_part("Offner", 'TTel', area_scaling=False, n_mirrors=4)
 
+        self.load_part('MORFEO common path', 'TTel', area_scaling = False, n_mirrors = 1, t_mirror = 't-morfeo.csv')
+        
         if RADIOSIM_USE_HSIM_EMIS:
-            self.load_part("LTAO dichroic", 'TTel', n_lenses=1, emis_lens="LTAO_0.6_dichroic.txt", dust_lens=2.*dustfrac)
-            self.load_part("AO cold trap", 'TTrap', n_mirrors=1, emis_mirror=0., dust_mirror=0.03, emis_dust=ecoldtrap)
-            self.load_part("Outer window", 'Touter_window', n_lenses=1, emis_scaling=0.5, dust_lens=dustfrac + self.mindustfrac)
-            self.load_part("Inner window", 'Tinner_window', n_lenses=1, emis_scaling=0.5, dust_lens=2.*self.mindustfrac)
-            self.load_part("Window reflected", 'TTrap', n_mirrors=1, emis_mirror=0., dust_mirror=2.*0.8*2.0*rwindow, emis_dust=ecoldtrap)
-            self.load_part("FPRS", 'TCool', area_scaling=False, n_mirrors=4)
             self.load_part("SCAO dichroic", 'TCool', n_lenses=1, emis_lens="SCAO_0.8_dichroic.txt", dust_lens=2.*dustfrac)
 
             # Cryostat
@@ -143,13 +139,8 @@ class Parameters():
             self.load_part("Cryo window cold trap", 'TCryoTrap', n_mirrors=1, emis_mirror=0., dust_mirror=2.0*rwindow, emis_dust=ecoldtrap)
             self.load_part("Pre-optics+IFU+Spectrograph", 'TCryoMech', n_lenses=8, n_mirrors=19)
         else:
-            self.load_part("LTAO dichroic", 'TTel', n_lenses=1, t_lens="t-ltao-d.csv", dust_lens=2.*dustfrac)
-            self.load_part("AO cold trap", 'TTrap', n_mirrors=1, emis_mirror=0., dust_mirror=0.03, emis_dust=ecoldtrap)
-            self.load_part("Outer window", 'Touter_window', n_lenses=1, emis_scaling=0.5, dust_lens=dustfrac + self.mindustfrac)
-            self.load_part("Inner window", 'Tinner_window', n_lenses=1, emis_scaling=0.5, dust_lens=2.*self.mindustfrac)
-            self.load_part("Window reflected", 'TTrap', n_mirrors=1, emis_mirror=0., dust_mirror=2.*0.8*2.0*rwindow, emis_dust=ecoldtrap)
-            self.load_part("FPRS", 'TCool', area_scaling=False, n_mirrors=1, t_mirror="t-fprs.csv")
             self.load_part("SCAO dichroic", 'TCool', n_lenses=1, t_lens="t-scao-d.csv", dust_lens=2.*dustfrac)
+            
             self.load_part("Cryostat", 'TCool', n_lenses=1, t_lens = 't-cryostat.csv', emis_scaling=0.4, dust_lens=self.mindustfrac)
             self.load_part("Pre-Optics", 'TCryoMech', n_lenses=1, t_lens = 't-preoptics.csv')
             self.load_part("IFU", 'TCryoMech', n_mirrors=1, t_mirror = 't-ifu.csv')
@@ -183,7 +174,7 @@ class Parameters():
         self.transmission_types = {}
         self.spect_types = {
             'is_in'        : ('IS light input', self.is_input_types),
-            'is_out'       : ('Input spectra (IS or telescope)', self.is_spect_types),
+            'is_out'       : ('Focal plane illumination', self.is_spect_types),
             'detector'     : ('Detector', self.ccd_spect_types),
             'transmission' : ('Total transmission spectrum', self.transmission_types),
         }
@@ -374,22 +365,21 @@ class Parameters():
     def get_part_names(self):
         return list(self.parts.keys())
 
-    def load_lamp(self, name, path = None, rating = None, desc = None, response = None, role = "cal", psd = False, SI = False):
-        spectclass = InterpolatedPowerSpectrum if psd else InterpolatedSpectrum 
+    def load_lamp(self, name, path = None, rating = None, desc = None, response = None, role = "HARMONI", spect_class = InterpolatedSpectrum, SI = False):
         if path is not None:
             full_path = self.resolve_data_file(path)
-            spectrum = spectclass(full_path, SI = SI)
+            spectrum = spect_class(full_path, SI = SI)
         else:
-            spectrum = spectclass(response = response, SI = SI)
+            spectrum = spect_class(response = response, SI = SI)
 
         if rating is not None:
             spectrum.set_nominal_power_rating(rating)
         
-        if not psd:
+        if spect_class is not InterpolatedPowerSpectrum:
             spectrum.set_role(role)
         self.lamps[name] = (spectrum, desc)
 
-    def add_line_lamp(self, name, F, desc = None, T = 1000, rating = None, frel_c = 0, role = "cal"):
+    def add_line_lamp(self, name, F, desc = None, T = 1000, rating = None, frel_c = 0, role = "HARMONI"):
         spectrum = LineSpectrum(F, T, frel_c)
 
         if rating is not None:
@@ -400,7 +390,7 @@ class Parameters():
         
         return spectrum
 
-    def load_black_body_lamp(self, name, T, rating = None, desc = None, role = "cal"):
+    def load_black_body_lamp(self, name, T, rating = None, desc = None, role = "HARMONI"):
         spectrum = BlackBodySpectrum(T)
 
         if rating is not None:
@@ -556,13 +546,14 @@ class Parameters():
         return self.scales.keys()
 
     def get_ao_mode_names(self):
-        return ['NOAO', 'SCAO', 'LTAO']
+        return ['NOAO', 'SCAO']
     
     def make_response(self, config: dict):
         grating = config['grating']
         ao      = config['ao']
         cal     = config['cal']
         airmass = config['airmass']
+        harMode = config['cal_source'] == 'HARMONI'
 
         fD_tel  = config['fD_tel'] if 'fD_tel' in config else None
         fD_cal  = config['fD_cal'] if 'fD_cal' in config else None
@@ -573,7 +564,7 @@ class Parameters():
         response.set_label('Instrument response')
         ao       = ao.upper()
         grating  = grating.upper()
-        aomodes  = ['LTAO', 'SCAO', 'NOAO']
+        aomodes  = ['SCAO', 'NOAO']
 
         gr_obj = self.get_grating(grating)
         if gr_obj is None:
@@ -581,12 +572,13 @@ class Parameters():
     
         if cal:
             # Push equalizer
-            if config['custom_eq'] is not None:
-                name = config['custom_eq']
-                response.push_back(self.get_custom_eq(name), fD_cal)
-            else:
-                response.push_back(gr_obj[1], fD_cal)
-            response.push_back(self.get_part("Offner"), fD_cal)
+            if harMode:
+                if config['custom_eq'] is not None:
+                    name = config['custom_eq']
+                    response.push_back(self.get_custom_eq(name), fD_cal)
+                else:
+                    response.push_back(gr_obj[1], fD_cal)
+                response.push_back(self.get_part("Offner"), fD_cal)
         else:
             # Push telescope
             self.sky.set_airmass(airmass)
@@ -597,20 +589,7 @@ class Parameters():
         if not ao in aomodes:
             raise Exception("Undefined AO configuration " + ao)
 
-        # Put LTAO dichroic
-        if ao == 'LTAO':
-            response.push_back(self.get_part('LTAO dichroic'), fD_ins)
-            response.push_back(self.get_part('AO cold trap'), fD_ins)
-        
-        # HARMONI's window has a hot and a cold side
-        response.push_back(self.get_part('Outer window'), fD_ins)
-        response.push_back(self.get_part('Inner window'), fD_ins)
-
-        # We are already in the inside
-        response.push_back(self.get_part('Window reflected'), fD_ins)
-
-        # FPRS
-        response.push_back(self.get_part('FPRS'), fD_tel)
+        response.push_back(self.get_part('MORFEO common path'), fD_ins)
 
         # Put SCAO dichroic
         if ao == 'SCAO':
@@ -644,9 +623,9 @@ class Parameters():
         return response
 
     def add_arc_lamps(self):
-        self.load_lamp('Argon arc lamp', path = 'ar-psd.csv', psd = True)
-        self.load_lamp('Argon arc lamp (fiber output)', path = 'ar-psd-atfiber.csv', psd = True)
-        self.load_lamp('Neon arc lamp',  path = 'ne-psd.csv', psd = True)
+        self.load_lamp('Argon arc lamp', path = 'ar-psd.csv', spect_class = InterpolatedPowerSpectrum)
+        self.load_lamp('Argon arc lamp (fiber output)', path = 'ar-psd-atfiber.csv', spect_class = InterpolatedPowerSpectrum)
+        self.load_lamp('Neon arc lamp',  path = 'ne-psd.csv', spect_class = InterpolatedPowerSpectrum)
 
     def load_defaults(self):
         # Load coatings
@@ -661,14 +640,14 @@ class Parameters():
             'PSD-HES-100W.csv',
             100,
             'HES-100W @ 3000K with 2" FWs + holder',
-            psd = True)
+            spect_class = InterpolatedPowerSpectrum)
         
         self.load_lamp(
             'HES50W',
             'PSD-HES-50W.csv',
             50,
             'HES-50W @ 3000K with 2" FWs + holder',
-            psd = True)
+            spect_class = InterpolatedPowerSpectrum)
         
         self.load_black_body_lamp('Black body', 3422, rating = 100)
         self.add_arc_lamps()
@@ -704,17 +683,17 @@ class Parameters():
             self.load_filter("Z",         "t-z.csv")
 
         # Load equalizers
-        self.load_equalizer("VIS",    "f-vis.csv")
+        #self.load_equalizer("VIS",    "f-vis.csv")
         self.load_equalizer("LR1",    "f-lr1.csv")
         self.load_equalizer("LR2",    "f-lr2.csv")
         self.load_equalizer("MR1",    "f-mr1.csv")
         self.load_equalizer("MR2",    "f-mr2.csv")
         self.load_equalizer("MR3",    "f-mr3.csv")
         self.load_equalizer("MR4",    "f-mr4.csv")
-        self.load_equalizer("HR1",    "f-hr1.csv")
-        self.load_equalizer("HR2",    "f-hr2.csv")
-        self.load_equalizer("HR3",    "f-hr3.csv")
-        self.load_equalizer("HR4",    "f-hr4.csv")
+        #self.load_equalizer("HR1",    "f-hr1.csv")
+        #self.load_equalizer("HR2",    "f-hr2.csv")
+        #self.load_equalizer("HR3",    "f-hr3.csv")
+        #self.load_equalizer("HR4",    "f-hr4.csv")
         
         # Load custom (COTS) equalizer
         self.load_custom_eq("LB120", "LB120.csv")
@@ -725,7 +704,7 @@ class Parameters():
         self.load_custom_eq("C5000", "C5000.csv")
 
         # Register available gratings
-        self.register_grating("VIS", "VIS", "VIS", 3100, 0.462e-6, 0.812e-6)
+        #self.register_grating("VIS", "VIS", "VIS", 3100, 0.462e-6, 0.812e-6)
         
         self.register_grating("LR1", "IZJ", "LR1", 3355, 0.811e-6, 1.369e-6)
         self.register_grating("LR2", "HK",  "LR2", 3355, 1.450e-6, 2.450e-6)
@@ -735,15 +714,17 @@ class Parameters():
         self.register_grating("MR3", "H" ,  "MR3", 7104, 1.435e-6, 1.815e-6)
         self.register_grating("MR4", "K" ,  "MR4", 7104, 1.951e-6, 2.469e-6)
         
-        self.register_grating("HR1", "Z",         "HR1", 17385, 0.827e-6, 0.903e-6)
-        self.register_grating("HR2", "H (high)",  "HR2", 17385, 1.538e-6, 1.678e-6)
-        self.register_grating("HR3", "K (short)", "HR3", 17385, 2.017e-6, 2.201e-6)
-        self.register_grating("HR4", "K (long)",  "HR4", 17385, 2.199e-6, 2.399e-6)
+        #self.register_grating("HR1", "Z",         "HR1", 17385, 0.827e-6, 0.903e-6)
+        #self.register_grating("HR2", "H (high)",  "HR2", 17385, 1.538e-6, 1.678e-6)
+        #self.register_grating("HR3", "K (short)", "HR3", 17385, 2.017e-6, 2.201e-6)
+        #self.register_grating("HR4", "K (long)",  "HR4", 17385, 2.199e-6, 2.399e-6)
 
         # Register scales
         self.register_scale((4, 4), HARMONI_FINEST_SPAXEL_SIZE, HARMONI_FINEST_SPAXEL_SIZE)
+        self.register_scale((6, 6),    6,  6)
         self.register_scale((10, 10), 10, 10)
         self.register_scale((20, 20), 20, 20)
+        self.register_scale((25, 25), 25, 25)
         self.register_scale((60, 30), 60, 30)
 
         self.register_transmissions()

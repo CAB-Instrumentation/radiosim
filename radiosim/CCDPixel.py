@@ -32,7 +32,7 @@ from .DetectorPixel        import DetectorPixel
 from .SimulationConfig     import SimulationConfig
 from .Parameters           import Parameters
 from .BlackBodySpectrum    import BlackBodySpectrum
-from scipy.integrate       import simps
+from scipy.integrate       import simpson
 
 from . import SPEED_OF_LIGHT
 
@@ -98,7 +98,7 @@ class CCDPixel(DetectorPixel):
         # we need to integrate this stream of background photons accordingly.
         #
 
-        e_rate += sign * simps(epixel, wl) #e/s
+        e_rate += sign * simpson(epixel, x = wl) #e/s
         return e_rate
 
     def electronsPerPixel(self, e_rate, wl = None, nu = None, t = 1, noisy = True):
