@@ -125,7 +125,7 @@ class SimUI(QObject):
                         title  = 'CCD saturation time probability distribution',
                         xlabel = 'Time to saturation [s]',
                         ylabel = fr'Probability density $p(t|{{c = {self.max_c}}})$',
-                        label = '$\lambda = {0:1.3f}{{\mu}}m$, $c_{{max}}$ = {1} ADU, scale ${2}x{3}$'.format(
+                        label = r'$\lambda = {0:1.3f}{{\mu}}m$, $c_{{max}}$ = {1} ADU, scale ${2}x{3}$'.format(
                             self.target_wl * 1e6,
                             self.max_c,
                             self.config.scale[0],

@@ -67,14 +67,14 @@ class SpectrumPainter:
         else:
             wl = np.linspace(start, end, N)
             nu = None
-            units  = '{\mu}m'
+            units  = r'{\mu}m'
             Cx = 1e-6 # m per µm
             x  = wl / Cx
             xlabel = 'Wavelength ($' + units + '$)'
 
         if photons:
             y = spectrum.photons(wl = wl, nu = nu) * Cx
-            ylabel = 'Photon field ($\gamma m^{-2} sr^{-1} {' + units + '}^{-1} s^{-1}$)'
+            ylabel = r'Photon field ($\gamma m^{-2} sr^{-1} {' + units + '}^{-1} s^{-1}$)'
         else:
             y = spectrum.I(wl = wl, nu = nu) * Cx
             ylabel = 'Spectral radiance ($W m^{-2} sr^{-1} {' + units + '}^{-1}$)'
@@ -116,11 +116,11 @@ class SpectrumPainter:
         else:
             wl = np.linspace(start, end, N)
             nu = None
-            units  = '{\mu}m'
+            units  = r'{\mu}m'
             Cx = 1e-6 # m per µm
             x  = wl / Cx
             xlabel = 'Wavelength ($' + units + '$)'
-            ylabel = '$I_\lambda / B_\lambda$'
+            ylabel = r'$I_\lambda / B_\lambda$'
         
         T = spectrum.wien_T()
         B = spectrum.planck(wl = wl, nu = nu) * Cx
